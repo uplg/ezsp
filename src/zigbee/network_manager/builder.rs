@@ -245,7 +245,6 @@ impl<T> Builder<T> {
     }
 
     /// Starts the network manager on the given transport implementation.
-    #[expect(clippy::too_many_lines)]
     pub async fn start(mut self) -> Result<(EzspNetworkManager<T>, Receiver<Event>), Error>
     where
         T: Transport,
@@ -339,19 +338,7 @@ impl<T> Builder<T> {
         info!("Device type: {typ}");
         info!("Network parameters:\n{parameters}");
 
-        debug!(
-            "Configuration:\n{}",
-            self.transport.get_configuration().await?.displayable()
-        );
-        debug!(
-            "Policies:\n{}",
-            self.transport.get_policies().await?.displayable()
-        );
-
-        info!(
-            "Current security state:\n{}",
-            self.transport.get_current_security_state().await?
-        );
+        log_state(&mut self.transport).await?;
 
         info!("Sending many-to-one route request");
         let radius = self
@@ -391,4 +378,26 @@ fn build_initial_security_state(link_key: Option<Key>, network_key: Option<Key>)
         0,
         MacAddr8::default(),
     )
+}
+
+async fn log_state<T>(transport: &mut T) -> Result<(), Error>
+where
+    T: Transport,
+{
+    debug!(
+        "Configuration:\n{}",
+        transport.get_configuration().await?.displayable()
+    );
+
+    debug!(
+        "Policies:\n{}",
+        transport.get_policies().await?.displayable()
+    );
+
+    info!(
+        "Current security state:\n{}",
+        transport.get_current_security_state().await?
+    );
+
+    Ok(())
 }
