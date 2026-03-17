@@ -1,6 +1,6 @@
 use zdp::{Command, Frame};
 
-pub use super::parse_zdp_frame_error::ParseZdpFrameError;
+use super::error::ParseZdpFrameError;
 use crate::defragmentation::DefragmentedMessage;
 
 impl TryFrom<DefragmentedMessage> for Frame<Command> {

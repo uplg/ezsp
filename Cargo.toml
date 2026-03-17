@@ -15,6 +15,7 @@ exclude = [".gitignore"]
 all-features = true
 
 [dependencies]
+aps = { version = "0.1", git = "https://github.com/PaulmannLighting/apis-saltans/", optional = true }
 ashv2 = { version = "6.0", git = "https://github.com/PaulmannLighting/ashv2/", optional = true }
 bitflags = "2.11"
 enum-iterator = "2.3"
@@ -37,7 +38,7 @@ zigbee = { version = "0.1", git = "https://github.com/PaulmannLighting/apis-salt
 [features]
 ashv2 = ["dep:ashv2", "tokio/rt", "tokio/time", "tokio/sync"]
 semver = ["dep:semver"]
-zigbee = ["dep:zigbee", "dep:zigbee-nwk", "dep:rand", "dep:zcl", "dep:zdp", "tokio/rt", "tokio/sync"]
+zigbee = ["dep:aps", "dep:zigbee", "dep:zigbee-nwk", "dep:rand", "dep:zcl", "dep:zdp", "tokio/rt", "tokio/sync"]
 
 [profile.release]
 opt-level = 3

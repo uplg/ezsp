@@ -5,7 +5,6 @@
 //!
 //! This library is free software and is not affiliated with Silicon Labs.
 #![deny(unsafe_code)]
-extern crate core;
 
 pub use self::commands::{
     Binding, Bootloader, Cbke, Configuration, Ezsp, GetValueExt, GreenPower, Messaging, Mfglib,
