@@ -29,10 +29,9 @@ impl Display for ParseApsFrameError {
 impl Error for ParseApsFrameError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidMessageType(_) => None,
+            Self::InvalidMessageType(_) | Self::InvalidProfile(_) => None,
             Self::ParseZdpFrameError(error) => Some(error),
             Self::ParseZclFrameError(error) => Some(error),
-            Self::InvalidProfile(_) => None,
         }
     }
 }

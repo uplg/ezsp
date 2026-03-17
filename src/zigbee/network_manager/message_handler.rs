@@ -5,7 +5,6 @@ use log::{debug, error, trace, warn};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
-use zigbee::Endpoint;
 use zigbee_nwk::Event;
 
 use crate::defragmentation::{Defragment, Transaction};

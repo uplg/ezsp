@@ -4,7 +4,7 @@ use aps::Destination;
 use zigbee::Profile;
 use zigbee_nwk::Command;
 
-pub use self::error::{ParseApsFrameError, ParseZdpFrameError};
+pub use self::error::ParseApsFrameError;
 use crate::DefragmentedMessage;
 use crate::ember::message::Incoming;
 
