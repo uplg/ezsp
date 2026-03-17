@@ -25,6 +25,7 @@ mod collect_networks_found;
 mod message_handler;
 
 /// Network manager for Zigbee networks.
+#[derive(Debug)]
 pub struct EzspNetworkManager<T> {
     transport: T,
     profile: Profile,
