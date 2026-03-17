@@ -22,6 +22,7 @@ use crate::{Callback, ember};
 pub type Handlers = Arc<Mutex<Vec<Sender<Callback>>>>;
 
 /// Handler for processing incoming messages.
+#[derive(Debug)]
 pub struct MessageHandler {
     handlers: Handlers,
     outgoing: Sender<Event>,
