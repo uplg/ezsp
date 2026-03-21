@@ -224,7 +224,10 @@ impl Transport for Uart {
                 .expect("Response channel should be open. This is a bug.")?;
 
             match P::try_from(parameters) {
-                Ok(frame) => return Ok(frame),
+                Ok(frame) => {
+                    self.state.write().clear_disambiguation();
+                    return Ok(frame);
+                }
                 Err(error) => {
                     parameters = error.into();
                     trace!(

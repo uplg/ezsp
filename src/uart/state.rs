@@ -61,6 +61,16 @@ impl State {
         self.disambiguation.replace(disambiguation);
     }
 
+    /// Clear the disambiguation.
+    ///
+    /// This should be called after a response has been successfully received
+    /// to prevent stale disambiguation state from affecting subsequent decode
+    /// attempts or incorrectly indicating a pending response.
+    pub fn clear_disambiguation(&mut self) {
+        trace!("Clearing disambiguation state.");
+        self.disambiguation.take();
+    }
+
     /// Returns `true` if a response is pending else `false`.
     #[must_use]
     pub const fn is_response_pending(&self) -> bool {
