@@ -9,7 +9,7 @@ use ashv2::{Payload, Proxy};
 use le_stream::ToLeStream;
 use log::{debug, info, trace, warn};
 use tokio::spawn;
-use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -56,7 +56,7 @@ impl Uart {
     pub fn new(
         ash_proxy: Proxy,
         ash_rx: Receiver<Payload>,
-        callbacks: Sender<Callback>,
+        callbacks: UnboundedSender<Callback>,
         protocol_version: u8,
         channel_size: usize,
     ) -> Self {

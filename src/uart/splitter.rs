@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use log::{trace, warn};
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 
 use super::decoder::Decoder;
 use super::np_rw_lock::NpRwLock;
@@ -14,7 +14,7 @@ use crate::frame::{Callback, Frame, Parameters};
 pub struct Splitter {
     incoming: Decoder,
     responses: Sender<Result<Parameters, Error>>,
-    callbacks: Sender<Callback>,
+    callbacks: UnboundedSender<Callback>,
     state: Arc<NpRwLock<State>>,
 }
 
@@ -27,7 +27,7 @@ impl Splitter {
     pub const fn new(
         incoming: Decoder,
         responses: Sender<Result<Parameters, Error>>,
-        callbacks: Sender<Callback>,
+        callbacks: UnboundedSender<Callback>,
         state: Arc<NpRwLock<State>>,
     ) -> Self {
         Self {
@@ -73,7 +73,7 @@ impl Splitter {
             Parameters::Callback(callback) => {
                 if header.is_async_callback() {
                     trace!("Forwarding async callback: {callback:?}");
-                    self.handle_callback(callback).await;
+                    self.handle_callback(callback);
                 } else {
                     trace!("Forwarding non-async callback as response: {callback:?}");
                     self.handle_response(Parameters::Callback(callback)).await;
@@ -89,10 +89,9 @@ impl Splitter {
             .expect("Response channel should be open. This is a bug.");
     }
 
-    async fn handle_callback(&self, handler: Callback) {
+    fn handle_callback(&self, handler: Callback) {
         self.callbacks
             .send(handler)
-            .await
             .expect("Callback channel should be open. This is a bug");
     }
 }
