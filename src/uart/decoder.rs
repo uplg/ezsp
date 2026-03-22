@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ashv2::Payload;
 use le_stream::FromLeStream;
 use log::trace;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::error::Decode;
 use crate::frame::parsable::Parsable;
@@ -18,7 +18,7 @@ use crate::{Error, Extended, Legacy, LowByte, MAX_PARAMETER_SIZE, Parameters, ez
 /// Decode `ASHv2` frames into `EZSP` frames.
 #[derive(Debug)]
 pub struct Decoder {
-    source: Receiver<Payload>,
+    source: UnboundedReceiver<Payload>,
     state: Arc<NpRwLock<State>>,
     header: Option<Header>,
     parameters: heapless::Vec<u8, MAX_PARAMETER_SIZE>,
@@ -30,7 +30,7 @@ impl Decoder {
     /// Sets the source as a receiver for incoming `ASHv2` frames
     /// and the current state of the `EZSP` UART.
     #[must_use]
-    pub const fn new(source: Receiver<Payload>, state: Arc<NpRwLock<State>>) -> Self {
+    pub const fn new(source: UnboundedReceiver<Payload>, state: Arc<NpRwLock<State>>) -> Self {
         Self {
             source,
             state,
