@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use log::{trace, warn};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender};
 
 use super::decoder::Decoder;
 use super::np_rw_lock::NpRwLock;
@@ -13,7 +13,7 @@ use crate::frame::{Callback, Frame, Parameters};
 /// Split incoming `EZSP` frames into responses and asynchronous callbacks.
 pub struct Splitter {
     incoming: Decoder,
-    responses: Sender<Result<Parameters, Error>>,
+    responses: UnboundedSender<Result<Parameters, Error>>,
     callbacks: UnboundedSender<Callback>,
     state: Arc<NpRwLock<State>>,
 }
@@ -26,7 +26,7 @@ impl Splitter {
     #[must_use]
     pub const fn new(
         incoming: Decoder,
-        responses: Sender<Result<Parameters, Error>>,
+        responses: UnboundedSender<Result<Parameters, Error>>,
         callbacks: UnboundedSender<Callback>,
         state: Arc<NpRwLock<State>>,
     ) -> Self {
@@ -46,7 +46,7 @@ impl Splitter {
             match frame {
                 Ok(frame) => {
                     trace!("Received frame: {frame:?}");
-                    self.handle_frame(frame).await;
+                    self.handle_frame(frame);
                 }
                 Err(error) => {
                     warn!("Failed to decode frame: {error}");
@@ -54,7 +54,6 @@ impl Splitter {
                     if self.state.read().is_response_pending() {
                         self.responses
                             .send(Err(error))
-                            .await
                             .expect("Response channel should be open. This is a bug.");
                     }
                 }
@@ -62,13 +61,13 @@ impl Splitter {
         }
     }
 
-    async fn handle_frame(&self, frame: Frame) {
+    fn handle_frame(&self, frame: Frame) {
         let (header, parameters) = frame.into();
 
         match parameters {
             Parameters::Response(response) => {
                 trace!("Forwarding response: {response:?}");
-                self.handle_response(Parameters::Response(response)).await;
+                self.handle_response(Parameters::Response(response));
             }
             Parameters::Callback(callback) => {
                 if header.is_async_callback() {
@@ -76,16 +75,15 @@ impl Splitter {
                     self.handle_callback(callback);
                 } else {
                     trace!("Forwarding non-async callback as response: {callback:?}");
-                    self.handle_response(Parameters::Callback(callback)).await;
+                    self.handle_response(Parameters::Callback(callback));
                 }
             }
         }
     }
 
-    async fn handle_response(&self, parameters: Parameters) {
+    fn handle_response(&self, parameters: Parameters) {
         self.responses
             .send(Ok(parameters))
-            .await
             .expect("Response channel should be open. This is a bug.");
     }
 

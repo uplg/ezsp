@@ -9,7 +9,7 @@ use ashv2::{Payload, Proxy};
 use le_stream::ToLeStream;
 use log::{debug, info, trace, warn};
 use tokio::spawn;
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender, channel};
+use tokio::sync::mpsc::{Receiver, UnboundedReceiver, UnboundedSender, channel, unbounded_channel};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -40,8 +40,8 @@ const REQUEUE_GRACE_PERIOD: Duration = Duration::from_millis(100);
 pub struct Uart {
     protocol_version: u8,
     state: Arc<NpRwLock<State>>,
-    responses_tx: Sender<Result<Parameters, Error>>,
-    responses_rx: Receiver<Result<Parameters, Error>>,
+    responses_tx: UnboundedSender<Result<Parameters, Error>>,
+    responses_rx: UnboundedReceiver<Result<Parameters, Error>>,
     encoder: Encoder,
     splitter: JoinHandle<()>,
     sequence: u8,
@@ -61,7 +61,7 @@ impl Uart {
         channel_size: usize,
     ) -> Self {
         let state = Arc::new(NpRwLock::new(State::default()));
-        let (responses_tx, responses_rx) = channel(channel_size);
+        let (responses_tx, responses_rx) = unbounded_channel();
         let splitter = spawn(
             Splitter::new(
                 Decoder::new(ash_rx, state.clone()),
@@ -236,7 +236,6 @@ impl Transport for Uart {
                     sleep(REQUEUE_GRACE_PERIOD).await;
                     self.responses_tx
                         .send(Ok(parameters))
-                        .await
                         .expect("Re-queueing channel should be open. This is a bug.");
                 }
             }
