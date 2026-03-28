@@ -116,7 +116,6 @@ pub trait Security {
     /// Import a transient link key.
     fn import_transient_key(
         &mut self,
-        context: man::Context,
         eui64: Eui64,
         plaintext_key: man::Key,
         flags: man::Flags,
@@ -316,13 +315,11 @@ where
 
     async fn import_transient_key(
         &mut self,
-        context: man::Context,
         eui64: Eui64,
         plaintext_key: man::Key,
         flags: man::Flags,
     ) -> Result<(), Error> {
         self.communicate::<_, import_transient_key::Response>(import_transient_key::Command::new(
-            context,
             eui64,
             plaintext_key,
             flags,

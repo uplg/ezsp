@@ -2,18 +2,22 @@
 
 use le_stream::{FromLeStream, ToLeStream};
 use num_traits::FromPrimitive;
+use silizium::zigbee::security::man::{Flags, Key};
 use silizium::Status;
-use silizium::zigbee::security::man::{Context, Flags, Key};
 
-use crate::Error;
 use crate::ember::Eui64;
 use crate::frame::Parameter;
+use crate::Error;
 
 const ID: u16 = 0x0111;
 
+/// Legacy (EZSP ≤ v13) wire format: `EUI64(8B) + Key(16B) + Flags(1B)`.
+///
+/// The upstream SiLabs SDK added a `SecManContext` prefix in EZSP v14, but most
+/// NCP firmware in the field (including the ELELABS/SkyConnect images commonly
+/// used with Zigbee2MQTT) still expects the legacy format.
 #[derive(Clone, Debug, Eq, PartialEq, ToLeStream)]
 pub(crate) struct Command {
-    context: Context,
     eui64: Eui64,
     plaintext_key: Key,
     flags: u8,
@@ -21,9 +25,8 @@ pub(crate) struct Command {
 
 impl Command {
     #[must_use]
-    pub const fn new(context: Context, eui64: Eui64, plaintext_key: Key, flags: Flags) -> Self {
+    pub const fn new(eui64: Eui64, plaintext_key: Key, flags: Flags) -> Self {
         Self {
-            context,
             eui64,
             plaintext_key,
             flags: flags.bits(),
