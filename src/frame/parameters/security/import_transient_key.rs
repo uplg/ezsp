@@ -2,21 +2,26 @@
 
 use num_traits::FromPrimitive;
 use silizium::Status;
-use silizium::zigbee::security::man::{Context, Flags, Key};
+use silizium::zigbee::security::man::{Flags, Key};
 
 use crate::Error;
 use crate::ember::Eui64;
 
+// Legacy (EZSP ≤ v13) wire format: `EUI64(8B) + Key(16B) + Flags(1B)`.
+//
+// The upstream SiLabs SDK added a `SecManContext(17B)` prefix in EZSP v14,
+// but v13 NCP firmware (e.g. Sonoff MG21 dongles) expects the legacy format;
+// with the prefix the NCP silently misparses the key data and security
+// handshakes for joining devices fail.
 crate::frame::parameters::frame!(
     0x0111,
-    { context: Context, eui64: Eui64, plaintext_key: Key, flags: u8 },
+    { eui64: Eui64, plaintext_key: Key, flags: u8 },
     impl {
         impl Command {
             /// Creates command parameters.
             #[must_use]
-            pub const fn new(context: Context, eui64: Eui64, plaintext_key: Key, flags: Flags) -> Self {
+            pub const fn new(eui64: Eui64, plaintext_key: Key, flags: Flags) -> Self {
                 Self {
-                    context,
                     eui64,
                     plaintext_key,
                     flags: flags.bits(),

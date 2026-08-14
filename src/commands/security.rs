@@ -114,9 +114,11 @@ pub trait Security {
     ) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Import a transient link key.
+    ///
+    /// Uses the legacy (EZSP ≤ v13) wire format without the `SecManContext`
+    /// prefix; see [`import_transient_key`] for details.
     fn import_transient_key(
         &mut self,
-        context: man::Context,
         eui64: Eui64,
         plaintext_key: man::Key,
         flags: man::Flags,
@@ -292,19 +294,13 @@ where
 
     async fn import_transient_key(
         &mut self,
-        context: man::Context,
         eui64: Eui64,
         plaintext_key: man::Key,
         flags: man::Flags,
     ) -> Result<(), Error> {
-        self.communicate(import_transient_key::Command::new(
-            context,
-            eui64,
-            plaintext_key,
-            flags,
-        ))
-        .await?
-        .try_into()
+        self.communicate(import_transient_key::Command::new(eui64, plaintext_key, flags))
+            .await?
+            .try_into()
     }
 
     async fn request_link_key(&mut self, partner: Eui64) -> Result<(), Error> {
