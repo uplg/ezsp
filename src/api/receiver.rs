@@ -93,8 +93,14 @@ where
             Parameters::Callback(callback) => {
                 if header.is_async_callback() {
                     trace!("Forwarding async callback: {callback:?}");
-                    self.callbacks.send(callback).await.unwrap_or_else(|error| {
-                        warn!("Callback channel closed: {error}");
+                    // Never block on the callback channel: responses and
+                    // callbacks are routed by this same task, so awaiting a
+                    // full callback channel would stall response routing and
+                    // time out the in-flight command (priority inversion).
+                    // Callbacks are advisory — under a storm, dropping the
+                    // excess is strictly better than wedging the pipeline.
+                    self.callbacks.try_send(callback).unwrap_or_else(|error| {
+                        warn!("Dropping callback (channel full or closed): {error}");
                     });
                 } else {
                     trace!("Forwarding non-async callback as response: {callback:?}");
