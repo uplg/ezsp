@@ -298,9 +298,13 @@ where
         plaintext_key: man::Key,
         flags: man::Flags,
     ) -> Result<(), Error> {
-        self.communicate(import_transient_key::Command::new(eui64, plaintext_key, flags))
-            .await?
-            .try_into()
+        self.communicate(import_transient_key::Command::new(
+            eui64,
+            plaintext_key,
+            flags,
+        ))
+        .await?
+        .try_into()
     }
 
     async fn request_link_key(&mut self, partner: Eui64) -> Result<(), Error> {
