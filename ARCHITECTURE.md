@@ -218,6 +218,17 @@ initial security state, and forms a network using `InitializationParameters`.
 and network key together; the initialization value adds a preconfigured link
 key, channel, join method, and initial-security bitmask.
 
+### NCP implementation modules
+
+The public `Ncp` type and its methods are implemented across private modules:
+
+- `src/ncp.rs` owns construction, endpoint lookup, and termination.
+- `src/ncp/messaging.rs` owns APS sends, payload limits, and outgoing fragmentation.
+- `src/ncp/scanning.rs` owns scan requests and awaits their result channels.
+- `src/ncp/scans.rs` aggregates the corresponding scan callbacks.
+
+These modules share `Ncp` state without changing its public method paths.
+
 ### NCP state and endpoints
 
 `Ncp` owns:
