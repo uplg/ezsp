@@ -12,8 +12,8 @@ use crate::{Callback, Communicate, Defragmenter, TranslatableEvent};
 
 /// Correlates internal callbacks and translates application-facing events.
 ///
-/// The builder runs this handler in a background task. It aggregates scan
-/// callbacks, resolves `messageSent` confirmations, reassembles fragmented APS
+/// The builder returns this handler's future for the caller to run. The handler
+/// aggregates scan callbacks, resolves `messageSent` confirmations, reassembles fragmented APS
 /// messages, and converts remaining callbacks into the configured output event
 /// type.
 #[derive(Debug)]
@@ -122,7 +122,7 @@ where
         }
     }
 
-    /// Translates EZSP callbacks into Zigbee events and sends them to the outgoing channel.
+    /// Processes internal callbacks and returns unconsumed callbacks as application events.
     #[must_use]
     async fn process_callback(
         &mut self,

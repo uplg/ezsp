@@ -14,7 +14,7 @@
 //! [`Startup`] records whether the builder should restore the NCP's persisted
 //! network or explicitly form a new network. With the
 //! `apis-saltans` feature, `Ncp` also implements
-//! `apis_saltans_hw::Driver` for suitable communicators and gains conversions
+//! `apis_saltans_hw::Driver` and gains conversions
 //! between EZSP and `apis-saltans` endpoint, scan, APS, and event types.
 
 use tokio::sync::mpsc::Sender;
@@ -66,10 +66,10 @@ pub struct Ncp {
 }
 
 impl Ncp {
-    /// Returns the lowest-numbered local endpoint that advertises an output cluster.
+    /// Returns the first configured local endpoint that advertises an output cluster.
     ///
     /// ZDP messages always use endpoint zero. For other profiles, the endpoint
-    /// registry is searched in ascending endpoint-number order and the first
+    /// registry is searched in supplied order and the first
     /// endpoint containing `cluster_id` in its output-cluster set is returned.
     ///
     /// # Errors
@@ -107,7 +107,7 @@ impl Ncp {
     ///
     /// Each endpoint is registered on the NCP before the value is returned.
     /// The supplied event-handler sender must feed the same callback handler
-    /// that receives callbacks for `transport`, because scans and APS send
+    /// that receives callbacks for `connection`, because scans and APS send
     /// confirmations are correlated through that channel. `options` provides
     /// the baseline APS flags that are combined with each send's options.
     ///

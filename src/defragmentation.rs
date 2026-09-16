@@ -324,7 +324,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::future::Future;
     use std::collections::BTreeMap;
     use std::time::Instant;
 
@@ -350,19 +349,16 @@ mod tests {
     #[derive(Debug)]
     struct MockTransport;
 
-    #[expect(
-        clippy::manual_async_fn,
-        reason = "trait implementations must return a Send future explicitly"
-    )]
     impl Communicate for MockTransport {
-        fn communicate<T>(
-            &mut self,
-            _command: T,
-        ) -> impl Future<Output = Result<T::Response, Error>> + Send
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "project style uses async fn for trait implementations, including immediate mocks"
+        )]
+        async fn communicate<T>(&mut self, _command: T) -> Result<T::Response, Error>
         where
             T: Parameter + RespondsWith + ToLeStream + Into<Commands>,
         {
-            async { Err(Error::NotConfigured) }
+            Err(Error::NotConfigured)
         }
     }
 

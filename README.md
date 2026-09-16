@@ -197,6 +197,10 @@ translates into the EZSP message tag used to correlate the later asynchronous
 Completed sends are reported through the application event channel using the
 application-provided sequence.
 
+`Ncp::source_endpoint` returns the first registered endpoint in the supplied
+endpoint-list order whose output clusters contain the requested cluster. It
+does not sort endpoints by number. ZDP uses endpoint zero.
+
 Each send method takes an `aps_options: ember::aps::Options` argument and the
 application APS `sequence: u8`. Unicast also takes a
 `fragmentation_permitted: bool`. The per-message options are combined with the
