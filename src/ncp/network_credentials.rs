@@ -78,18 +78,11 @@ fn random_mac_addr8<T>(rng: &mut T) -> Eui64
 where
     T: Rng + ?Sized,
 {
-    loop {
-        let mut bytes = [0u8; EUI64_LENGTH];
-        rng.fill(&mut bytes);
+    let mut bytes = [0u8; EUI64_LENGTH];
+    rng.fill(&mut bytes);
 
-        // IEEE EUI-64:
-        // - clear multicast bit (bit 0)
-        // - set locally administered bit (bit 1)
-        bytes[0] = (bytes[0] & !MULTICAST_BIT) | LOCAL_BIT;
-
-        // Avoid common sentinel values.
-        if bytes != [0; EUI64_LENGTH] && bytes != [u8::MAX; EUI64_LENGTH] {
-            return Eui64::from(bytes);
-        }
-    }
+    // Setting the local bit and clearing the multicast bit also excludes both
+    // the all-zero and all-one sentinel addresses.
+    bytes[0] = (bytes[0] & !MULTICAST_BIT) | LOCAL_BIT;
+    Eui64::from(bytes)
 }
