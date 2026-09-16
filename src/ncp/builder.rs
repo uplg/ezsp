@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::num::NonZero;
 
 use log::{debug, info, trace};
-use tokio::sync::mpsc::{Sender, channel};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 
 pub use self::build_result::BuildResult;
 use crate::ember::aps::Options;
@@ -11,8 +11,8 @@ use crate::ezsp::{config, policy};
 use crate::ncp::Endpoint;
 use crate::ncp::await_event::AwaitEvent;
 use crate::{
-    Client, Configuration, ConfigurationExt, Displayable, Error, EventHandler,
-    MIN_NON_LEGACY_VERSION, Messaging, Ncp, Networking, PolicyExt, Security, Startup,
+    Callback, Client, Configuration, ConfigurationExt, Connection, Displayable, Error,
+    EventHandler, MIN_NON_LEGACY_VERSION, Messaging, Ncp, Networking, PolicyExt, Security, Startup,
     TranslatableEvent, Utilities, ValueError,
 };
 
@@ -209,23 +209,14 @@ impl Builder {
 
         let (mut connected, mut callbacks) = self.client.connect(self.desired_version).await?;
 
-        debug!("Setting concentrator");
-        connected.set_concentrator(self.concentrator).await?;
-
-        for (key, value) in self.configuration {
-            debug!("Setting configuration {key:?} to {value:#06X}");
-            connected.set_configuration_value(key, value).await?;
-        }
-
-        for (key, value) in self.policy {
-            debug!("Setting policy {key:?} to {value:#04X}");
-            connected.set_policy(key, value).await?;
-        }
-
-        if let Some(manufacturer_code) = self.manufacturer_code {
-            debug!("Setting manufacturer code to {manufacturer_code:#06X}");
-            connected.set_manufacturer_code(manufacturer_code).await?;
-        }
+        configure_stack(
+            &mut connected,
+            self.concentrator,
+            self.configuration,
+            self.policy,
+            self.manufacturer_code,
+        )
+        .await?;
 
         let ieee_address = connected.get_eui64().await?;
         debug!("IEEE address: {ieee_address}");
@@ -244,30 +235,7 @@ impl Builder {
         )
         .await?;
 
-        match startup {
-            Startup::Initialize(init) => {
-                if connected.leave_network().await.is_ok() {
-                    callbacks.await_network_down().await;
-                    info!("Left existing network.");
-                }
-
-                debug!("Setting initial security state");
-                connected
-                    .set_initial_security_state(init.initial_security_state())
-                    .await?;
-
-                info!("Reinitializing network");
-                connected
-                    .form_network(init.parameters(self.radio_tx_power))
-                    .await?;
-            }
-            Startup::Resume(init_bitmask) => {
-                connected.network_init(init_bitmask).await?;
-            }
-        }
-
-        callbacks.await_network_up().await;
-        info!("Network is up.");
+        start_network(&mut connected, &mut callbacks, startup, self.radio_tx_power).await?;
 
         debug!("Setting radio power to {}", self.radio_tx_power);
         connected.set_radio_power(self.radio_tx_power).await?;
@@ -312,6 +280,70 @@ impl Builder {
             event_handler,
         })
     }
+}
+
+/// Applies stack settings in the required order before registering endpoints.
+async fn configure_stack(
+    connected: &mut Connection,
+    concentrator: Option<concentrator::Parameters>,
+    configuration: BTreeMap<config::Id, u16>,
+    policy: BTreeMap<policy::Id, u8>,
+    manufacturer_code: Option<u16>,
+) -> Result<(), Error> {
+    debug!("Setting concentrator");
+    connected.set_concentrator(concentrator).await?;
+
+    for (key, value) in configuration {
+        debug!("Setting configuration {key:?} to {value:#06X}");
+        connected.set_configuration_value(key, value).await?;
+    }
+
+    for (key, value) in policy {
+        debug!("Setting policy {key:?} to {value:#04X}");
+        connected.set_policy(key, value).await?;
+    }
+
+    if let Some(manufacturer_code) = manufacturer_code {
+        debug!("Setting manufacturer code to {manufacturer_code:#06X}");
+        connected.set_manufacturer_code(manufacturer_code).await?;
+    }
+
+    Ok(())
+}
+
+/// Forms or resumes a network and waits for its network-up callback.
+async fn start_network(
+    connected: &mut Connection,
+    callbacks: &mut Receiver<Callback>,
+    startup: Startup,
+    radio_tx_power: i8,
+) -> Result<(), Error> {
+    match startup {
+        Startup::Initialize(init) => {
+            if connected.leave_network().await.is_ok() {
+                callbacks.await_network_down().await;
+                info!("Left existing network.");
+            }
+
+            debug!("Setting initial security state");
+            connected
+                .set_initial_security_state(init.initial_security_state())
+                .await?;
+
+            info!("Reinitializing network");
+            connected
+                .form_network(init.parameters(radio_tx_power))
+                .await?;
+        }
+        Startup::Resume(init_bitmask) => {
+            connected.network_init(init_bitmask).await?;
+        }
+    }
+
+    callbacks.await_network_up().await;
+    info!("Network is up.");
+
+    Ok(())
 }
 
 async fn log_state<T>(transport: &mut T) -> Result<(), Error>

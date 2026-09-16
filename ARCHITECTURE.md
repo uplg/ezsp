@@ -183,6 +183,11 @@ is:
 10. return the callback-to-message bridge future; and
 11. return the event-handler future.
 
+Internally, `configure_stack` applies concentrator, configuration, policy, and
+manufacturer settings. After endpoint registration, `start_network` handles the
+selected startup mode and waits for `NetworkUp`. `Builder::start` keeps these
+stages in order and then performs runtime setup and constructs the futures.
+
 `Builder::start` does not spawn tasks. The application must first start any
 lower-level transport tasks, then spawn both actor futures returned by
 `Client::run`, and only then await `start`. Once startup returns, it must
