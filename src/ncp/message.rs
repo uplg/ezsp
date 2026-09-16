@@ -1,24 +1,50 @@
 use tokio::sync::oneshot::Sender;
 
-use crate::Callback;
 use crate::ember::Status;
 use crate::parameters::networking::handler::{EnergyScanResult, NetworkFound};
+use crate::{Callback, Error};
 
 /// Messages exchanged with the NCP event handler.
 ///
-/// The event handler receives raw EZSP callbacks, one-shot registration
-/// requests for scans and outgoing message confirmations, and a termination
+/// The event handler receives raw EZSP callbacks, managed scan requests, legacy
+/// scan registrations, outgoing message-confirmation registrations, and a termination
 /// signal used by [`Ncp::terminate`](crate::Ncp::terminate).
 #[derive(Debug)]
 pub enum Message {
     /// An incoming callback.
     Callback(Box<Callback>),
 
-    /// Registers a receiver for the next active network scan.
+    /// Registers a receiver for an active scan issued separately by the caller.
+    ///
+    /// A failed completion closes this legacy channel. Prefer
+    /// [`Self::StartNetworkScan`] for command ownership and explicit errors.
     NetworkScan(Sender<Vec<NetworkFound>>),
 
-    /// Registers a receiver for the next energy scan.
+    /// Registers a receiver for an energy scan issued separately by the caller.
+    ///
+    /// A failed completion closes this legacy channel. Prefer
+    /// [`Self::StartChannelScan`] for command ownership and explicit errors.
     ChannelScan(Sender<Vec<EnergyScanResult>>),
+
+    /// Starts an active scan and returns its results or command/completion error.
+    StartNetworkScan {
+        /// Bit mask of channels to scan.
+        channel_mask: u32,
+        /// EZSP scan duration exponent.
+        duration: u8,
+        /// Receives the completed scan or its error.
+        response: Sender<Result<Vec<NetworkFound>, Error>>,
+    },
+
+    /// Starts an energy scan and returns its results or command/completion error.
+    StartChannelScan {
+        /// Bit mask of channels to scan.
+        channel_mask: u32,
+        /// EZSP scan duration exponent.
+        duration: u8,
+        /// Receives the completed scan or its error.
+        response: Sender<Result<Vec<EnergyScanResult>, Error>>,
+    },
 
     /// Registers a receiver for a non-final fragment's `messageSent` callback.
     ///

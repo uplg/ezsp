@@ -252,19 +252,37 @@ returns `Error::NoMatchingSourceEndpoint`.
 
 ### Scan correlation
 
-An active or energy scan first registers a one-shot sender with the event
-handler and then issues `start_scan`. `Scans` queues pending scan kinds and
-buffers `networkFound` or `energyScanResult` callbacks. `scanComplete` pops the
-oldest pending scan and returns the appropriate buffered results.
+An active or energy scan sends a request and a one-shot result channel to the
+event handler. The handler owns a separate clone of `Connection` for scan
+commands. It issues `start_scan` and registers the result channel only if the
+command succeeds, before consuming queued callbacks. Rejected commands return
+the original error without leaving a pending registration.
+
+`Scans` buffers results for the oldest accepted scan. `scanComplete` resolves
+that scan with its buffered results or the callback's original error status,
+and clears the buffers in either case. Unsolicited results are ignored.
+Requests canceled before command dispatch are skipped. Once accepted, a scan
+keeps its queue entry even if its caller cancels, so its eventual completion
+cannot be attributed to another request.
+
+The public `Message::NetworkScan` and `Message::ChannelScan` registration-only
+variants remain available for callers issuing their own commands. Their legacy
+result channels cannot carry errors, so a failed completion closes the channel.
+`StartNetworkScan` and `StartChannelScan` provide the managed request path and
+return `Result` values. Exhaustive matches on `Message` must handle these new
+variants.
 
 ```mermaid
 flowchart LR
-    request[Ncp scan request] --> register[Register one-shot]
-    register --> command[startScan command]
+    request[Ncp scan request] --> handler[Event handler]
+    handler --> command[startScan command]
+    command --> accepted[Register accepted scan]
+    command --> rejected[Return command error]
     callbacks[Result callbacks] --> buffer[Scans buffers]
-    complete[scanComplete] --> resolve[Resolve oldest one-shot]
+    accepted --> buffer
+    complete[scanComplete status] --> resolve[Resolve oldest scan]
     buffer --> resolve
-    resolve --> request
+    resolve --> result[Results or completion error]
 ```
 
 ### APS sends and confirmation events

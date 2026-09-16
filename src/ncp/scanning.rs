@@ -2,10 +2,9 @@
 
 use tokio::sync::oneshot::channel;
 
-use crate::ezsp::network::scan;
-use crate::ncp::Ncp;
+use crate::Error;
+use crate::ncp::{Message, Ncp};
 use crate::parameters::networking::handler::{EnergyScanResult, NetworkFound};
-use crate::{Error, Networking};
 
 impl Ncp {
     /// Starts an active network scan and returns all `networkFound` callback results.
@@ -13,18 +12,21 @@ impl Ncp {
     /// # Errors
     ///
     /// Returns an [`Error`] if registering the scan, sending `startScan`, or
-    /// receiving the scan result fails.
+    /// receiving the scan result fails, or the completion callback reports failure.
     pub async fn scan_networks(
         &mut self,
         channel_mask: u32,
         duration: u8,
     ) -> Result<Vec<NetworkFound>, Error> {
-        let (tx, rx) = channel();
-        self.event_handler_handle.send(tx.into()).await?;
-        self.connection
-            .start_scan(scan::Type::ActiveScan, channel_mask, duration)
+        let (response, result) = channel();
+        self.event_handler_handle
+            .send(Message::StartNetworkScan {
+                channel_mask,
+                duration,
+                response,
+            })
             .await?;
-        Ok(rx.await?)
+        result.await?
     }
 
     /// Starts an energy scan and returns all `energyScanResult` callback results.
@@ -32,17 +34,20 @@ impl Ncp {
     /// # Errors
     ///
     /// Returns an [`Error`] if registering the scan, sending `startScan`, or
-    /// receiving the scan result fails.
+    /// receiving the scan result fails, or the completion callback reports failure.
     pub async fn scan_channels(
         &mut self,
         channel_mask: u32,
         duration: u8,
     ) -> Result<Vec<EnergyScanResult>, Error> {
-        let (tx, rx) = channel();
-        self.event_handler_handle.send(tx.into()).await?;
-        self.connection
-            .start_scan(scan::Type::EnergyScan, channel_mask, duration)
+        let (response, result) = channel();
+        self.event_handler_handle
+            .send(Message::StartChannelScan {
+                channel_mask,
+                duration,
+                response,
+            })
             .await?;
-        Ok(rx.await?)
+        result.await?
     }
 }

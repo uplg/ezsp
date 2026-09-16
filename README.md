@@ -192,6 +192,13 @@ workflows that span commands and asynchronous callbacks:
 - source-endpoint lookup from registered output clusters; and
 - event-handler shutdown through `Ncp::terminate`.
 
+`Ncp::scan_networks` and `Ncp::scan_channels` return both immediate command
+rejections and failures reported by `scanComplete` as errors. Failed scans do
+not leave results or registrations for the next request. Canceling an accepted
+scan's future does not stop the NCP scan: the event handler consumes its eventual
+completion before resolving later scans. Both the callback bridge and event
+handler must be running while awaiting scan results.
+
 Awaiting `Ncp::unicast`, `Ncp::multicast`, or `Ncp::broadcast` performs the EZSP
 send transaction. Each method requires the local source endpoint explicitly.
 The caller also supplies an application APS `sequence`, which the helper

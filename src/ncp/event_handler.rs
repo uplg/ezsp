@@ -6,9 +6,12 @@ use tokio::sync::oneshot;
 
 use crate::ember::Status;
 use crate::frame::parameters::networking::handler::Handler as Networking;
+use crate::ncp::scans::PendingScan;
 use crate::ncp::{Message, Scans};
 use crate::parameters::messaging::handler::{Handler as Messaging, IncomingMessage, MessageSent};
-use crate::{Callback, Communicate, Defragmenter, TranslatableEvent};
+use crate::{
+    Callback, Communicate, Defragmenter, Networking as NetworkCommands, TranslatableEvent,
+};
 
 /// Correlates internal callbacks and translates application-facing events.
 ///
@@ -19,15 +22,20 @@ use crate::{Callback, Communicate, Defragmenter, TranslatableEvent};
 #[derive(Debug)]
 pub struct EventHandler<T, U> {
     defragmenter: Defragmenter<T>,
+    scan_connection: T,
     output: Sender<U>,
     scans: Scans,
     responses: BTreeMap<u8, oneshot::Sender<Result<Status, u8>>>,
 }
 
 impl<T, U> EventHandler<T, U> {
-    pub(crate) fn new(transport: T, output: Sender<U>) -> Self {
+    pub(crate) fn new(transport: T, output: Sender<U>) -> Self
+    where
+        T: Clone,
+    {
         Self {
-            defragmenter: Defragmenter::new(transport),
+            defragmenter: Defragmenter::new(transport.clone()),
+            scan_connection: transport,
             output,
             scans: Scans::default(),
             responses: BTreeMap::new(),
@@ -43,8 +51,8 @@ impl<T, U> EventHandler<T, U> {
             Networking::EnergyScanResult(energy_scan_result) => {
                 self.scans.add_channel(*energy_scan_result);
             }
-            Networking::ScanComplete(_) => {
-                self.scans.pop();
+            Networking::ScanComplete(completed) => {
+                self.scans.complete(completed.status());
             }
             other => {
                 return Some(other);
@@ -77,6 +85,26 @@ impl<T, U> EventHandler<T, U> {
 impl<T, U> EventHandler<T, U>
 where
     T: Communicate,
+{
+    /// Registers only accepted commands before processing their queued callbacks.
+    async fn start_scan(&mut self, scan: PendingScan, channel_mask: u32, duration: u8) {
+        if scan.is_closed() {
+            return;
+        }
+        match self
+            .scan_connection
+            .start_scan(scan.kind(), channel_mask, duration)
+            .await
+        {
+            Ok(()) => self.scans.register(scan),
+            Err(error) => scan.complete(Err(error), Vec::new(), Vec::new()),
+        }
+    }
+}
+
+impl<T, U> EventHandler<T, U>
+where
+    T: Communicate,
     U: TranslatableEvent,
 {
     pub(crate) async fn run(mut self, mut inbox: Receiver<Message>) {
@@ -99,6 +127,22 @@ where
                 }
                 Message::ChannelScan(sender) => {
                     self.scans.push(sender.into());
+                }
+                Message::StartNetworkScan {
+                    channel_mask,
+                    duration,
+                    response,
+                } => {
+                    self.start_scan(PendingScan::Network(response), channel_mask, duration)
+                        .await;
+                }
+                Message::StartChannelScan {
+                    channel_mask,
+                    duration,
+                    response,
+                } => {
+                    self.start_scan(PendingScan::Channel(response), channel_mask, duration)
+                        .await;
                 }
                 Message::Sent { tag, sender } => {
                     if self.responses.insert(tag, sender).is_some() {
@@ -185,12 +229,24 @@ where
 
 #[cfg(test)]
 mod tests {
-    use le_stream::FromLeStream;
+    use std::collections::VecDeque;
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    use le_stream::{FromLeStream, ToLeStream};
     use tokio::sync::{mpsc, oneshot};
 
     use super::EventHandler;
     use crate::ember::Status;
+    use crate::frame::{Commands, Parameter, RespondsWith};
+    use crate::ncp::Message;
+    use crate::ncp::scans::PendingScan;
     use crate::parameters::messaging::handler::MessageSent;
+    use crate::parameters::networking::handler::{
+        EnergyScanResult, Handler as Networking, ScanComplete,
+    };
+    use crate::parameters::networking::{self, start_scan};
+    use crate::{Callback, Communicate, DefragmentedMessage, Error, Parameters, Response};
 
     const MESSAGE_TAG: u8 = 0x34;
     const APS_SEQUENCE: u8 = 0x56;
@@ -214,6 +270,78 @@ mod tests {
         STATUS_SUCCESS,
         0x00,
     ];
+
+    const CHANNEL_MASK: u32 = 1 << 11;
+    const DURATION: u8 = 3;
+    const CHANNEL: u8 = 11;
+    const RSSI: u8 = 0xD8;
+    const QUEUE_CAPACITY: usize = 8;
+    const COMMAND_SUCCESS: u32 = 0;
+    const COMMAND_REJECTED: u32 = u32::MAX;
+    const UNKNOWN_COMPLETION: u8 = u8::MAX;
+
+    #[derive(Clone, Debug)]
+    struct ScanTransport {
+        statuses: VecDeque<u32>,
+    }
+
+    impl Communicate for ScanTransport {
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "mock responses are immediately ready"
+        )]
+        async fn communicate<T>(&mut self, _command: T) -> Result<T::Response, Error>
+        where
+            T: Parameter + RespondsWith + ToLeStream + Into<Commands>,
+        {
+            assert_eq!(T::ID, start_scan::Command::ID);
+            let status = self.statuses.pop_front().expect("unexpected scan command");
+            let response =
+                start_scan::Response::from_le_stream(status.to_le_bytes().into_iter()).unwrap();
+            let parameters = Parameters::Response(Response::Networking(
+                networking::Response::StartScan(Box::new(response)),
+            ));
+            T::Response::try_from(parameters)
+                .map_err(|error| Error::UnexpectedResponse(Box::new(error.into())))
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestEvent;
+
+    impl From<Callback> for TestEvent {
+        fn from(_: Callback) -> Self {
+            Self
+        }
+    }
+
+    impl From<DefragmentedMessage> for TestEvent {
+        fn from(_: DefragmentedMessage) -> Self {
+            Self
+        }
+    }
+
+    fn ready<F>(future: F) -> F::Output
+    where
+        F: Future,
+    {
+        let mut future = pin!(future);
+        let mut context = Context::from_waker(Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(result) => result,
+            Poll::Pending => panic!("test future unexpectedly blocked"),
+        }
+    }
+
+    fn energy_result() -> EnergyScanResult {
+        EnergyScanResult::from_le_stream([CHANNEL, RSSI].into_iter()).unwrap()
+    }
+
+    fn completion(status: u8) -> Networking {
+        Networking::ScanComplete(Box::new(
+            ScanComplete::from_le_stream([CHANNEL, status].into_iter()).unwrap(),
+        ))
+    }
 
     fn message_sent() -> MessageSent {
         MessageSent::from_le_stream(MESSAGE_SENT_BYTES.into_iter())
@@ -243,5 +371,145 @@ mod tests {
         let mut handler = EventHandler::<(), ()>::new((), output);
 
         assert!(!handler.handle_message_sent(&message_sent()));
+    }
+    #[test]
+    fn rejected_scan_does_not_consume_the_next_scans_completion() {
+        let (output, _events) = mpsc::channel(QUEUE_CAPACITY);
+        let handler = EventHandler::<_, TestEvent>::new(
+            ScanTransport {
+                statuses: [COMMAND_REJECTED, COMMAND_SUCCESS].into(),
+            },
+            output,
+        );
+        let (inbox, messages) = mpsc::channel(QUEUE_CAPACITY);
+        let (rejected, rejected_result) = oneshot::channel();
+        let (accepted, accepted_result) = oneshot::channel();
+        inbox
+            .try_send(Message::StartNetworkScan {
+                channel_mask: CHANNEL_MASK,
+                duration: DURATION,
+                response: rejected,
+            })
+            .unwrap();
+        inbox
+            .try_send(Message::StartChannelScan {
+                channel_mask: CHANNEL_MASK,
+                duration: DURATION,
+                response: accepted,
+            })
+            .unwrap();
+        inbox
+            .try_send(
+                Callback::Networking(Networking::EnergyScanResult(Box::new(energy_result())))
+                    .into(),
+            )
+            .unwrap();
+        inbox
+            .try_send(Callback::Networking(completion(STATUS_SUCCESS)).into())
+            .unwrap();
+        inbox.try_send(Message::Terminate).unwrap();
+        ready(handler.run(messages));
+
+        assert!(matches!(
+            rejected_result.blocking_recv().unwrap(),
+            Err(Error::Status(crate::Status::Sl(Err(COMMAND_REJECTED))))
+        ));
+        assert_eq!(
+            accepted_result.blocking_recv().unwrap().unwrap(),
+            vec![energy_result()]
+        );
+    }
+
+    #[test]
+    fn completion_errors_preserve_status_and_clear_results() {
+        for status in [u8::from(Status::InvalidCall), UNKNOWN_COMPLETION] {
+            let (output, _events) = mpsc::channel(QUEUE_CAPACITY);
+            let mut handler = EventHandler::<_, TestEvent>::new(
+                ScanTransport {
+                    statuses: [COMMAND_SUCCESS, COMMAND_SUCCESS].into(),
+                },
+                output,
+            );
+            let (response, result) = oneshot::channel();
+            ready(handler.start_scan(PendingScan::Channel(response), CHANNEL_MASK, DURATION));
+            assert!(
+                handler
+                    .handle_networking_callbacks(Networking::EnergyScanResult(Box::new(
+                        energy_result()
+                    )))
+                    .is_none()
+            );
+            assert!(
+                handler
+                    .handle_networking_callbacks(completion(status))
+                    .is_none()
+            );
+            let error = result.blocking_recv().unwrap().unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                Status::check(status).unwrap_err().to_string()
+            );
+
+            let (response, result) = oneshot::channel();
+            ready(handler.start_scan(PendingScan::Channel(response), CHANNEL_MASK, DURATION));
+            assert!(
+                handler
+                    .handle_networking_callbacks(completion(STATUS_SUCCESS))
+                    .is_none()
+            );
+            assert!(result.blocking_recv().unwrap().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn canceled_accepted_scan_keeps_its_own_completion() {
+        let (output, _events) = mpsc::channel(QUEUE_CAPACITY);
+        let mut handler = EventHandler::<_, TestEvent>::new(
+            ScanTransport {
+                statuses: [COMMAND_SUCCESS, COMMAND_SUCCESS].into(),
+            },
+            output,
+        );
+        let (response, result) = oneshot::channel();
+        ready(handler.start_scan(PendingScan::Channel(response), CHANNEL_MASK, DURATION));
+        drop(result);
+        let (response, mut result) = oneshot::channel();
+        ready(handler.start_scan(PendingScan::Channel(response), CHANNEL_MASK, DURATION));
+        assert!(
+            handler
+                .handle_networking_callbacks(Networking::EnergyScanResult(
+                    Box::new(energy_result())
+                ))
+                .is_none()
+        );
+        assert!(
+            handler
+                .handle_networking_callbacks(completion(STATUS_SUCCESS))
+                .is_none()
+        );
+        assert!(matches!(
+            result.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        ));
+        assert!(
+            handler
+                .handle_networking_callbacks(completion(STATUS_SUCCESS))
+                .is_none()
+        );
+        assert!(result.blocking_recv().unwrap().unwrap().is_empty());
+    }
+
+    #[test]
+    fn skips_requests_canceled_before_the_command_is_issued() {
+        let (output, _events) = mpsc::channel(QUEUE_CAPACITY);
+        let mut handler = EventHandler::<_, TestEvent>::new(
+            ScanTransport {
+                statuses: VecDeque::new(),
+            },
+            output,
+        );
+        let (response, result) = oneshot::channel();
+        drop(result);
+        ready(handler.start_scan(PendingScan::Network(response), CHANNEL_MASK, DURATION));
     }
 }
