@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 use crate::api::Message;
 use crate::api::negotiate_version::NegotiateVersion;
 use crate::frame::{Commands, Parameter, RespondsWith};
-use crate::{Communicate, Error, Status, ezsp};
+use crate::{Communicate, Error, ezsp};
 
 /// Cloneable handle to a connected EZSP transmitter actor.
 ///
@@ -44,12 +44,7 @@ impl Communicate for Connection {
                 Err(error) => Err(Error::UnexpectedResponse(Box::new(error.into()))),
             },
             Err(error) => {
-                if matches!(
-                    error,
-                    Error::Status(Status::Ezsp(Ok(ezsp::Status::Error(
-                        ezsp::Error::VersionNotSet,
-                    ))))
-                ) {
+                if error.is_ezsp_error(ezsp::Error::VersionNotSet) {
                     self.handle.negotiate_version(self.desired_version).await?;
                 }
 

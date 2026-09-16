@@ -87,6 +87,14 @@ pub enum Error {
     NoEndpoints,
 }
 
+impl Error {
+    /// Returns whether this error carries the specified decoded EZSP error status.
+    pub(crate) fn is_ezsp_error(&self, expected: ezsp::Error) -> bool {
+        matches!(self, Self::Status(Status::Ezsp(Ok(ezsp::Status::Error(actual))))
+            if *actual == expected)
+    }
+}
+
 impl From<Result<ezsp::Status, u8>> for Error {
     fn from(status: Result<ezsp::Status, u8>) -> Self {
         Self::Status(status.into())

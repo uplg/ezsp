@@ -4,7 +4,6 @@ use std::fmt::Display;
 use enum_iterator::all;
 use log::debug;
 
-use crate::error::Status;
 use crate::extensions::Displayable;
 use crate::ezsp::config;
 use crate::{Configuration, Error, ezsp};
@@ -30,12 +29,7 @@ where
                     configuration.insert(id, value);
                 }
                 Err(error) => {
-                    if matches!(
-                        error,
-                        Error::Status(Status::Ezsp(Ok(ezsp::Status::Error(
-                            ezsp::Error::InvalidId,
-                        ))))
-                    ) {
+                    if error.is_ezsp_error(ezsp::Error::InvalidId) {
                         debug!(
                             "Unsupported configuration ID: {id:?} ({:#04X})",
                             u8::from(id)
