@@ -54,6 +54,16 @@ pub enum Status {
     NoError,
 }
 
+impl Status {
+    /// Checks a raw status, preserving known failures and unknown status codes.
+    pub(crate) fn check(raw: u8) -> Result<(), crate::Error> {
+        match Self::from_u8(raw).ok_or(raw) {
+            Ok(Self::Success) => Ok(()),
+            other => Err(other.into()),
+        }
+    }
+}
+
 impl Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&Values::from(*self), f)
@@ -269,5 +279,29 @@ impl LowerHex for Status {
 impl UpperHex for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         UpperHex::fmt(&Values::from(*self), f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use num_traits::FromPrimitive;
+
+    use super::Status;
+    use crate::Error;
+    use crate::error::Status as ErrorStatus;
+
+    #[test]
+    fn checks_every_raw_status_without_losing_error_details() {
+        for raw in u8::MIN..=u8::MAX {
+            let decoded = Status::from_u8(raw).ok_or(raw);
+            match (decoded, Status::check(raw)) {
+                (Ok(Status::Success), Ok(())) => (),
+                (expected, Err(Error::Status(ErrorStatus::Ezsp(actual)))) => {
+                    assert_eq!(actual, expected);
+                    assert_ne!(actual, Ok(Status::Success));
+                }
+                other => panic!("unexpected status conversion: {other:?}"),
+            }
+        }
     }
 }

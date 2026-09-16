@@ -1,7 +1,5 @@
 //! Parameters for the [`Messaging::lookup_eui64_by_node_id`](crate::Messaging::lookup_eui64_by_node_id) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ember::{Eui64, NodeId, Status};
 
@@ -24,10 +22,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.eui64),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.eui64)
             }
         }
     }

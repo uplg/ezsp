@@ -1,7 +1,5 @@
 //! Parameters for the [`Configuration::get_extended_value`](crate::Configuration::get_extended_value) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ezsp::Status;
 use crate::ezsp::value::ExtendedId;
@@ -29,10 +27,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.value),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.value)
             }
         }
     }

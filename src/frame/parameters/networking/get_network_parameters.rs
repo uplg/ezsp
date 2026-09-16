@@ -54,12 +54,10 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Type::from_u8(response.node_type)
+                Status::check(response.status)?;
+                Type::from_u8(response.node_type)
                         .ok_or_else(|| ValueError::EmberNodeType(response.node_type).into())
-                        .map(|node_type| (node_type, response.parameters)),
-                    other => Err(other.into()),
-                }
+                        .map(|node_type| (node_type, response.parameters))
             }
         }
     }

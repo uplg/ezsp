@@ -2,7 +2,6 @@
 
 use le_stream::FromLeStream;
 use log::error;
-use num_traits::FromPrimitive;
 
 use crate::ember::{DeviceDutyCycles, MAX_END_DEVICE_CHILDREN, PerDeviceDutyCycle, Status};
 use crate::error::Error;
@@ -51,10 +50,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.device_duty_cycles()),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.device_duty_cycles())
             }
         }
     }

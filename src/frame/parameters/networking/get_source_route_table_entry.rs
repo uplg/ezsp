@@ -1,7 +1,6 @@
 //! Parameters for the [`Networking::get_source_route_table_entry`](crate::Networking::get_source_route_table_entry) command.
 
 use le_stream::{FromLeStream, ToLeStream};
-use num_traits::FromPrimitive;
 
 use crate::Error;
 use crate::ember::{NodeId, Status};
@@ -25,10 +24,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.entry),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.entry)
             }
         }
     }

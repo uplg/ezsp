@@ -1,7 +1,5 @@
 //! Parameters for the [`Messaging::send_many_to_one_route_request`](crate::Messaging::send_many_to_one_route_request) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ember::Status;
 use crate::ember::concentrator::Type;
@@ -28,10 +26,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(()),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(())
             }
         }
     }

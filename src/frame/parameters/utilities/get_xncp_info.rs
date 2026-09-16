@@ -1,7 +1,6 @@
 //! Parameters for the [`Utilities::get_xncp_info`](crate::Utilities::get_xncp_info) command.
 
 use le_stream::{FromLeStream, ToLeStream};
-use num_traits::FromPrimitive;
 
 use crate::ember::Status;
 use crate::{Error, ValueError};
@@ -16,12 +15,10 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => response
+                Status::check(response.status)?;
+                response
                         .payload
-                        .ok_or_else(|| ValueError::MissingPayload.into()),
-                    other => Err(other.into()),
-                }
+                        .ok_or_else(|| ValueError::MissingPayload.into())
             }
         }
     }

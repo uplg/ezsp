@@ -1,7 +1,5 @@
 //! Parameters for the [`Messaging::send_unicast`](crate::Messaging::send_unicast) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ember::aps::Frame;
 use crate::ember::message::Destination;
@@ -41,10 +39,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.sequence),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.sequence)
             }
         }
     }

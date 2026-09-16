@@ -1,7 +1,5 @@
 //! Parameters for the [`Cbke::get_certificate`](crate::Cbke::get_certificate) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ember::{CertificateData, Status};
 
@@ -16,10 +14,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(response.local_cert),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(response.local_cert)
             }
         }
     }

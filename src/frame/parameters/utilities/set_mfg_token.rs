@@ -1,7 +1,5 @@
 //! Parameters for the [`Utilities::set_mfg_token`](crate::Utilities::set_mfg_token) command.
 
-use num_traits::FromPrimitive;
-
 use crate::Error;
 use crate::ember::Status;
 use crate::ezsp::mfg_token::Id;
@@ -29,10 +27,8 @@ crate::frame::parameters::frame!(
             type Error = Error;
 
             fn try_from(response: Response) -> Result<Self, Self::Error> {
-                match Status::from_u8(response.status).ok_or(response.status) {
-                    Ok(Status::Success) => Ok(()),
-                    other => Err(other.into()),
-                }
+                Status::check(response.status)?;
+                Ok(())
             }
         }
     }
