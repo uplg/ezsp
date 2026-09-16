@@ -81,30 +81,22 @@ where
         }
 
         match payload {
-            Parameters::Response(response) => {
-                trace!("Forwarding response: {response:?}");
-                self.transmitter
-                    .send(Message::Response(Frame::new(
-                        header,
-                        Parameters::Response(response),
-                    )))
-                    .await?;
+            Parameters::Callback(callback) if header.is_async_callback() => {
+                trace!("Forwarding async callback: {callback:?}");
+                self.callbacks.send(callback).await.unwrap_or_else(|error| {
+                    warn!("Callback channel closed: {error}");
+                });
             }
-            Parameters::Callback(callback) => {
-                if header.is_async_callback() {
-                    trace!("Forwarding async callback: {callback:?}");
-                    self.callbacks.send(callback).await.unwrap_or_else(|error| {
-                        warn!("Callback channel closed: {error}");
-                    });
-                } else {
-                    trace!("Forwarding non-async callback as response: {callback:?}");
-                    self.transmitter
-                        .send(Message::Response(Frame::new(
-                            header,
-                            Parameters::Callback(callback),
-                        )))
-                        .await?;
+            payload => {
+                match &payload {
+                    Parameters::Response(response) => trace!("Forwarding response: {response:?}"),
+                    Parameters::Callback(callback) => {
+                        trace!("Forwarding non-async callback as response: {callback:?}");
+                    }
                 }
+                self.transmitter
+                    .send(Message::Response(Frame::new(header, payload)))
+                    .await?;
             }
         }
 

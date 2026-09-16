@@ -86,11 +86,7 @@ where
                     if let Some(response) = self.process_callback(*callback).await {
                         match response {
                             Ok(event) => {
-                                if let Err(error) = self.output.send(event).await {
-                                    trace!(
-                                        "Failed to forward EZSP event to registered handler: {error}"
-                                    );
-                                }
+                                Self::emit_event(&self.output, event).await;
                             }
                             Err(error) => {
                                 debug!("Failed to translate event: {error}");
@@ -117,6 +113,13 @@ where
         }
 
         warn!("Callback channel closed. Message handler terminating.");
+    }
+
+    /// Delivers an application event, logging when its receiver has closed.
+    async fn emit_event(output: &Sender<U>, event: U) {
+        if let Err(error) = output.send(event).await {
+            trace!("Failed to forward EZSP event to registered handler: {error}");
+        }
     }
 
     /// Translates EZSP callbacks into Zigbee events and sends them to the outgoing channel.
@@ -171,9 +174,7 @@ where
             Ok(event) => {
                 trace!("Successfully converted defragmented message into an event: {event:?}");
 
-                if let Err(error) = self.output.send(event).await {
-                    trace!("Failed to forward EZSP event to registered handler: {error}");
-                }
+                Self::emit_event(&self.output, event).await;
             }
             Err(error) => {
                 warn!("{error}");
