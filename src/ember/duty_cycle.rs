@@ -49,9 +49,11 @@ impl Limits {
     #[must_use]
     pub const fn try_new(crit_thresh: u16, limit_thresh: u16, susp_limit: u16) -> Option<Self> {
         if susp_limit > crit_thresh && crit_thresh > limit_thresh {
-            #[expect(unsafe_code)]
-            // SAFETY: We checked the limit constraints in the line above.
-            Some(unsafe { Self::new_unchecked(crit_thresh, limit_thresh, susp_limit) })
+            Some(Self {
+                crit_thresh,
+                limit_thresh,
+                susp_limit,
+            })
         } else {
             None
         }
@@ -59,16 +61,11 @@ impl Limits {
 
     /// Create a new duty cycle limit configuration without checking the limits.
     ///
-    /// # Safety
-    /// If the limits are not as follows: `susp_limit` > `crit_thresh` > `limit_thresh`,
-    /// the limits will cause undefined behaviour (UB).
-    #[expect(unsafe_code)]
+    /// This constructor preserves raw protocol values, including invalid threshold
+    /// ordering. Use [`Self::try_new`] to validate limits before configuring the NCP.
+    /// Invalid ordering is a protocol constraint, not a Rust memory-safety invariant.
     #[must_use]
-    pub const unsafe fn new_unchecked(
-        crit_thresh: u16,
-        limit_thresh: u16,
-        susp_limit: u16,
-    ) -> Self {
+    pub const fn new_unchecked(crit_thresh: u16, limit_thresh: u16, susp_limit: u16) -> Self {
         Self {
             crit_thresh,
             limit_thresh,
@@ -92,5 +89,35 @@ impl Limits {
     #[must_use]
     pub const fn susp_limit(&self) -> u16 {
         self.susp_limit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Limits;
+
+    const LIMITED: u16 = 100;
+    const CRITICAL: u16 = 180;
+    const SUSPENDED: u16 = 250;
+
+    #[test]
+    fn accepts_only_strictly_ordered_limits() {
+        assert_eq!(
+            Limits::try_new(CRITICAL, LIMITED, SUSPENDED),
+            Some(Limits::new_unchecked(CRITICAL, LIMITED, SUSPENDED))
+        );
+        for (critical, limited, suspended) in [
+            (LIMITED, LIMITED, SUSPENDED),
+            (CRITICAL, LIMITED, CRITICAL),
+            (LIMITED, CRITICAL, SUSPENDED),
+            (SUSPENDED, LIMITED, CRITICAL),
+        ] {
+            assert!(Limits::try_new(critical, limited, suspended).is_none());
+            let raw = Limits::new_unchecked(critical, limited, suspended);
+            assert_eq!(
+                (raw.crit_thresh(), raw.limit_thresh(), raw.susp_limit()),
+                (critical, limited, suspended)
+            );
+        }
     }
 }
