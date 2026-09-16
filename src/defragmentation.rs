@@ -66,6 +66,16 @@ struct Packet {
     deadline: Instant,
 }
 
+/// Result of storing a fragment in an in-progress packet.
+enum FragmentOutcome {
+    /// More fragments are needed.
+    Incomplete,
+    /// The payload is complete and fits the receive buffer.
+    Complete,
+    /// The packet is invalid or exceeds the receive buffer.
+    Discard,
+}
+
 /// Reassembles fragmented incoming APS messages.
 ///
 /// Construct this value during callback-handler initialization, call
@@ -169,7 +179,7 @@ impl<T> Defragmenter<T> {
         let timeout = self.timeout;
         let window_size = self.window_size;
         let receive_buffer_length = self.receive_buffer_length;
-        let (discard, complete) = {
+        let outcome = {
             let packet = self.packets.get_mut(&key)?;
 
             if fragment < packet.window_base
@@ -178,26 +188,19 @@ impl<T> Defragmenter<T> {
                 return None;
             }
 
-            if let Some(expected_fragments) = expected_fragments {
-                if expected_fragments == 0
+            let invalid_count = expected_fragments.is_some_and(|expected| {
+                expected == 0
                     || packet
                         .expected_fragments
-                        .is_some_and(|expected| expected != expected_fragments)
-                {
-                    (true, false)
-                } else {
-                    packet.expected_fragments = Some(expected_fragments);
-                    Self::store_and_check(
-                        packet,
-                        fragment,
-                        payload,
-                        now,
-                        timeout,
-                        window_size,
-                        receive_buffer_length,
-                    )
-                }
+                        .is_some_and(|previous| previous != expected)
+            });
+
+            if invalid_count {
+                FragmentOutcome::Discard
             } else {
+                if let Some(expected) = expected_fragments {
+                    packet.expected_fragments = Some(expected);
+                }
                 Self::store_and_check(
                     packet,
                     fragment,
@@ -210,17 +213,17 @@ impl<T> Defragmenter<T> {
             }
         };
 
-        if discard {
-            self.packets.remove(&key);
-            return None;
+        match outcome {
+            FragmentOutcome::Incomplete => None,
+            FragmentOutcome::Discard => {
+                self.packets.remove(&key);
+                None
+            }
+            FragmentOutcome::Complete => {
+                let packet = self.packets.remove(&key)?;
+                Some(packet.fragments.into_values().flatten().collect())
+            }
         }
-
-        if !complete {
-            return None;
-        }
-
-        let packet = self.packets.remove(&key)?;
-        Some(packet.fragments.into_values().flatten().collect())
     }
 
     fn store_and_check(
@@ -231,7 +234,7 @@ impl<T> Defragmenter<T> {
         timeout: Duration,
         window_size: u8,
         receive_buffer_length: usize,
-    ) -> (bool, bool) {
+    ) -> FragmentOutcome {
         packet.deadline = now + timeout;
         packet
             .fragments
@@ -239,10 +242,10 @@ impl<T> Defragmenter<T> {
             .or_insert_with(|| payload.to_vec());
 
         let Some(expected_fragments) = packet.expected_fragments else {
-            return (false, false);
+            return FragmentOutcome::Incomplete;
         };
         if !Self::window_is_complete(packet, expected_fragments, window_size) {
-            return (false, false);
+            return FragmentOutcome::Incomplete;
         }
 
         while Self::window_is_complete(packet, expected_fragments, window_size)
@@ -252,11 +255,15 @@ impl<T> Defragmenter<T> {
         }
 
         if packet.fragments.len() != usize::from(expected_fragments) {
-            return (false, false);
+            return FragmentOutcome::Incomplete;
         }
 
         let message_length: usize = packet.fragments.values().map(Vec::len).sum();
-        (message_length > receive_buffer_length, true)
+        if message_length > receive_buffer_length {
+            FragmentOutcome::Discard
+        } else {
+            FragmentOutcome::Complete
+        }
     }
 
     fn window_is_complete(packet: &Packet, expected_fragments: u8, window_size: u8) -> bool {
@@ -336,6 +343,9 @@ mod tests {
     const SECOND_FRAGMENT: u8 = 1;
     const FIRST_PAYLOAD: &[u8] = b"one";
     const SECOND_PAYLOAD: &[u8] = b"two";
+    const INVALID_COUNT: u8 = 0;
+    const CONFLICTING_COUNT: u8 = EXPECTED_FRAGMENTS + 1;
+    const TOO_SMALL_BUFFER: usize = FIRST_PAYLOAD.len();
 
     #[derive(Debug)]
     struct MockTransport;
@@ -438,5 +448,48 @@ mod tests {
             .expect("all fragments are present");
 
         assert_eq!(payload, [FIRST_PAYLOAD, SECOND_PAYLOAD].concat());
+    }
+
+    #[test]
+    fn discards_invalid_counts_and_oversized_completed_packets() {
+        for (expected, limit) in [
+            (INVALID_COUNT, RECEIVE_BUFFER_LENGTH),
+            (CONFLICTING_COUNT, RECEIVE_BUFFER_LENGTH),
+            (EXPECTED_FRAGMENTS, TOO_SMALL_BUFFER),
+        ] {
+            let now = Instant::now();
+            let key = PacketKey {
+                sender: SENDER,
+                sequence: SEQUENCE,
+            };
+            let mut defragmenter = Defragmenter::with_configuration(
+                MockTransport,
+                limit,
+                WINDOW_SIZE,
+                DEFAULT_REASSEMBLY_TIMEOUT,
+            );
+            defragmenter.packets.insert(
+                key,
+                Packet {
+                    fragments: BTreeMap::new(),
+                    expected_fragments: Some(EXPECTED_FRAGMENTS),
+                    window_base: FIRST_FRAGMENT,
+                    deadline: now + DEFAULT_REASSEMBLY_TIMEOUT,
+                },
+            );
+
+            assert!(
+                defragmenter
+                    .store_fragment(key, FIRST_FRAGMENT, None, FIRST_PAYLOAD, now)
+                    .is_none()
+            );
+            assert!(defragmenter.packets.contains_key(&key));
+            assert!(
+                defragmenter
+                    .store_fragment(key, SECOND_FRAGMENT, Some(expected), SECOND_PAYLOAD, now)
+                    .is_none()
+            );
+            assert!(!defragmenter.packets.contains_key(&key));
+        }
     }
 }
