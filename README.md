@@ -118,6 +118,9 @@ those futures, `start`:
    scan aggregation, APS defragmentation, and message-confirmation correlation;
 8. returns those futures with `Ncp` in a `BuildResult`.
 
+Startup returns an error if the callback stream closes before the required
+network-up or network-down status arrives.
+
 `Builder::start` does not spawn either returned future. Spawn `bridge` before
 `event_handler`, and keep both tasks running while using the `Ncp`.
 

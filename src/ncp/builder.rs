@@ -321,7 +321,7 @@ async fn start_network(
     match startup {
         Startup::Initialize(init) => {
             if connected.leave_network().await.is_ok() {
-                callbacks.await_network_down().await;
+                callbacks.await_network_down().await?;
                 info!("Left existing network.");
             }
 
@@ -340,7 +340,7 @@ async fn start_network(
         }
     }
 
-    callbacks.await_network_up().await;
+    callbacks.await_network_up().await?;
     info!("Network is up.");
 
     Ok(())

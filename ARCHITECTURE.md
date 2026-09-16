@@ -185,7 +185,8 @@ is:
 
 Internally, `configure_stack` applies concentrator, configuration, policy, and
 manufacturer settings. After endpoint registration, `start_network` handles the
-selected startup mode and waits for `NetworkUp`. `Builder::start` keeps these
+selected startup mode and waits for `NetworkUp`. Lifecycle waits return
+`Error::ChannelClosed` if the stream ends before the requested status arrives. `Builder::start` keeps these
 stages in order and then performs runtime setup and constructs the futures.
 
 `Builder::start` does not spawn tasks. The application must first start any
