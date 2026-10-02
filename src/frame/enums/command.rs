@@ -18,6 +18,28 @@ crate::frame::parameters::command_enum!(
     Zll(crate::frame::parameters::zll::Command),
 );
 
+impl Command {
+    /// Adapts version-sensitive command layouts to the negotiated EZSP
+    /// protocol version.
+    ///
+    /// Currently only `importTransientKey` differs: NCPs below EZSP v14 expect
+    /// it without the leading `SecManContext`.
+    #[must_use]
+    pub(crate) fn for_version(self, protocol_version: u8) -> Self {
+        use crate::frame::parameters::security;
+
+        match self {
+            Self::Security(security) => match *security {
+                security::Command::ImportTransientKey(command) => {
+                    command.for_version(protocol_version).into()
+                }
+                other => Self::Security(Box::new(other)),
+            },
+            other => other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use le_stream::ToLeStream;

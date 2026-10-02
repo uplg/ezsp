@@ -211,6 +211,11 @@ where
             return;
         }
 
+        let command = match self.negotiated_version {
+            Some(version) => command.for_version(version),
+            None => command,
+        };
+
         if let Err(error) = self.transmit.transmit(Frame::new(header, command)).await {
             response.send(Err(error)).unwrap_or_else(drop);
             return;
@@ -259,5 +264,69 @@ mod tests {
 
         assert!(transmitter.version_negotiation.is_none());
         assert!(transmitter.negotiated_version.is_none());
+    }
+
+    struct Recorder(Vec<Frame<Commands>>);
+
+    impl Transmit for Recorder {
+        fn transmit(
+            &mut self,
+            frame: Frame<Commands>,
+        ) -> impl Future<Output = Result<(), Error>> + Send {
+            self.0.push(frame);
+            std::future::ready(Ok(()))
+        }
+    }
+
+    fn import_transient_key_payload(negotiated_version: u8) -> Vec<u8> {
+        use std::pin::pin;
+        use std::task::{Context as TaskContext, Poll, Waker};
+
+        use le_stream::ToLeStream;
+        use silizium::zigbee::security::man::{Context, DerivedKeyType, Flags, KeyType};
+
+        use crate::parameters::security::import_transient_key;
+
+        let (_inbox_sender, inbox) = mpsc::channel(1);
+        let mut transmitter = Transmitter::new(Recorder(Vec::new()), inbox);
+        transmitter.negotiated_version = Some(negotiated_version);
+        let eui64 = [1, 2, 3, 4, 5, 6, 7, 8].into();
+        let context = Context::new(
+            KeyType::TcLink,
+            0,
+            DerivedKeyType::None,
+            eui64,
+            0,
+            Flags::empty(),
+            0,
+        );
+        let command =
+            import_transient_key::Command::new(context, eui64, [0xAB; 16], Flags::empty());
+        let (response, _receiver) = oneshot::channel();
+
+        {
+            let mut future = pin!(transmitter.handle_command(command.into(), response));
+            let mut cx = TaskContext::from_waker(Waker::noop());
+            assert!(matches!(future.as_mut().poll(&mut cx), Poll::Ready(())));
+        }
+
+        let frame = transmitter.transmit.0.pop().expect("one frame transmitted");
+        let (_, payload) = frame.into();
+        payload.to_le_stream().collect()
+    }
+
+    #[test]
+    fn import_transient_key_uses_legacy_layout_below_v14() {
+        let payload = import_transient_key_payload(13);
+        // EUI64 (little-endian) + key + flags, no SecManContext.
+        let mut expected = vec![8, 7, 6, 5, 4, 3, 2, 1];
+        expected.extend([0xAB; 16]);
+        expected.push(0);
+        assert_eq!(payload, expected);
+    }
+
+    #[test]
+    fn import_transient_key_keeps_context_from_v14() {
+        assert_eq!(import_transient_key_payload(14).len(), 17 + 8 + 16 + 1);
     }
 }
