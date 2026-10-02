@@ -83,8 +83,14 @@ where
         match payload {
             Parameters::Callback(callback) if header.is_async_callback() => {
                 trace!("Forwarding async callback: {callback:?}");
-                self.callbacks.send(callback).await.unwrap_or_else(|error| {
-                    warn!("Callback channel closed: {error}");
+                // Never await the callback channel: this task also routes
+                // command responses. Consumers commonly await command
+                // responses while handling callbacks, so blocking here on a
+                // full channel stalls response routing, times out in-flight
+                // commands, and can deadlock the pipeline. Under a callback
+                // storm, dropping the excess is the lesser evil.
+                self.callbacks.try_send(callback).unwrap_or_else(|error| {
+                    warn!("Dropping callback (channel full or closed): {error}");
                 });
             }
             payload => {
@@ -116,5 +122,86 @@ where
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    use le_stream::FromLeStream;
+
+    use super::*;
+    use crate::frame::Parsable;
+    use crate::{Header, Legacy, LowByte};
+
+    const STACK_STATUS_ID: u8 = 0x19;
+    const NETWORK_UP: u8 = 0x90;
+    const NOP_ID: u8 = 0x05;
+
+    struct Frames(VecDeque<Frame<Parameters>>);
+
+    impl Receive for Frames {
+        fn receive(
+            &mut self,
+            _negotiated_version: Option<u8>,
+        ) -> impl Future<Output = Option<Frame<Parameters>>> + Send {
+            std::future::ready(self.0.pop_front())
+        }
+    }
+
+    /// Frame control: response bit, plus callback type "async" when requested.
+    fn response_header(sequence: u8, id: u8, is_async_callback: bool) -> Header {
+        let control = if is_async_callback { 0x90 } else { 0x80 };
+        let low_byte = LowByte::from_le_stream([control].into_iter()).expect("one byte");
+        Header::Legacy(Legacy::new(sequence, low_byte, id))
+    }
+
+    #[test]
+    fn full_callback_channel_does_not_block_response_routing() {
+        let (callbacks, mut callbacks_rx) = mpsc::channel(1);
+        let (transmitter, mut transmitter_rx) = mpsc::channel(4);
+        let stack_status = || {
+            Callback::parse_from_le_stream(STACK_STATUS_ID.into(), [NETWORK_UP].into_iter())
+                .expect("valid stackStatusHandler")
+        };
+        // Fill the callback channel so a blocking send would never complete.
+        callbacks
+            .try_send(stack_status())
+            .expect("channel has room");
+
+        let frames = Frames(VecDeque::from([
+            Frame::new(
+                response_header(0xFF, STACK_STATUS_ID, true),
+                Parameters::Callback(stack_status()),
+            ),
+            Frame::new(
+                response_header(0, NOP_ID, false),
+                Parameters::Response(
+                    Response::parse_from_le_stream(NOP_ID.into(), std::iter::empty())
+                        .expect("valid nop response"),
+                ),
+            ),
+        ]));
+
+        let mut run = pin!(Receiver::new(frames, callbacks, transmitter).run());
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(
+            matches!(run.as_mut().poll(&mut cx), Poll::Ready(())),
+            "receiver must not wait for callback channel capacity"
+        );
+
+        let Ok(Message::Response(frame)) = transmitter_rx.try_recv() else {
+            panic!("response was not routed to the transmitter");
+        };
+        let (header, _): (Header, Parameters) = frame.into();
+        assert_eq!(header.sequence(), 0);
+        assert!(callbacks_rx.try_recv().is_ok());
+        assert!(
+            callbacks_rx.try_recv().is_err(),
+            "excess callback is dropped"
+        );
     }
 }
