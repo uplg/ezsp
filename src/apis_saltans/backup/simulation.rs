@@ -513,6 +513,10 @@ fn missing_image_wrong_catalog_and_normalized_token_disagreement_fail_before_wri
 }
 
 #[test]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "The pinned operation borrows the connection until the scope ends"
+)]
 fn maintenance_session_blocks_borrowed_commands_until_drop() {
     let profile = profile(false);
     let (ncp, mut simulator) = Simulator::ncp(Model::source(&profile), profile);
